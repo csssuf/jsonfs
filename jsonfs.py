@@ -2,8 +2,9 @@
 
 import sys
 import os
-import io
 import json
+import threading
+import errno
 
 from fuse import FUSE, FuseOSError, Operations
 
@@ -11,14 +12,34 @@ class JSONFS(Operations):
     def __init__(self, storage_file_path):
         self.storage_file_path = storage_file_path
         if not os.path.exists(self.storage_file_path):
-            self.storage_file = open(self.storage_file_path, 'w')
-            json.dump([], self.storage_file)
-        else:
-            self.storage_file = open(self.storage_file_path, 'w')
+            storage_file = open(self.storage_file_path, 'w+')
+            json.dump([], storage_file)
+            storage_file.flush()
         self.fd = 0
+        self.rwlock = threading.Lock()
 
     def create(self, path, mode):
-        jsonpath = path.split("/")[1:]
+        internal_path = path.split("/")[1:]
+        storage_file = open(self.storage_file_path)
+        with self.rwlock: 
+            json_obj = json.load(storage_file)
+            full_json_obj = json_obj
+            for component in internal_path[:-1]:
+                print("comp: " + component)
+                for child in json_obj:
+                    if component == child["name"]:
+                        json_obj = child["children"]
+                    elif component != internal_path[-2]:
+                        raise FuseOSError(errno.ENOENT)
+            new_obj = dict()
+            new_obj["name"] = internal_path[-1]
+            new_obj["mode"] = mode
+            new_obj["contents"] = ""
+            json_obj.append(new_obj)
+            storage_file.close()
+            storage_file = open(self.storage_file_path, "w")
+            json.dump(full_json_obj, storage_file)
+            storage_file.close()
         self.fd += 1
         return self.fd
 
