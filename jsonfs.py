@@ -50,7 +50,9 @@ class JSONFS(Operations):
             for component in internal_path:
                 for child in json_obj["children"]:
                     if component == child["name"]:
-                        json_obj = child["children"]
+                        json_obj = child
+            if "name" in json_obj and json_obj["name"] != internal_path[-1]:
+                raise FuseOSError(errno.ENOENT)
             return dict((key, json_obj["attrs"][key]) for key in
                     json_obj["attrs"])
 
@@ -61,7 +63,6 @@ class JSONFS(Operations):
             json_obj = json.load(storage_file)
             full_json_obj = json_obj
             for component in internal_path[:-1]:
-                print("comp: " + component)
                 for child in json_obj["children"]:
                     if component == child["name"]:
                         json_obj = child["children"]
@@ -73,14 +74,14 @@ class JSONFS(Operations):
             new_obj["contents"] = ""
             new_obj["attrs"] = {}
             new_obj["attrs"]["st_mode"] = mode
-            new_obj["attrs"]["st_nlink"] = 0
+            new_obj["attrs"]["st_nlink"] = 1
             new_obj["attrs"]["st_uid"] = os.getuid()
             new_obj["attrs"]["st_gid"] = os.getgid()
             new_obj["attrs"]["st_size"] = 0
             new_obj["attrs"]["st_atime"] = 0
             new_obj["attrs"]["st_ctime"] = JSONFS._get_time() 
             new_obj["attrs"]["st_mtime"] = JSONFS._get_time() 
-            json_obj.append(new_obj)
+            json_obj["children"].append(new_obj)
             storage_file.close()
             storage_file = open(self.storage_file_path, "w")
             json.dump(full_json_obj, storage_file)
@@ -93,15 +94,13 @@ class JSONFS(Operations):
             storage_file = open(self.storage_file_path)
             json_obj = json.load(storage_file)
             internal_path = path.split("/")[1:]
-            print(internal_path)
             for component in internal_path:
                 for child in json_obj["children"]:
                     if component == child["name"]:
-                        json_obj = child["children"]
+                        json_obj = child
                     elif component != internal_path[-2]:
                         raise FuseOSError(errno.ENOENT)
-            print(json_obj)
-            return json_obj["contents"][offset:offset + length]
+            return bytes(json_obj["contents"][offset:offset + length], 'ascii')
 
 def main(mountpoint, storage_file_path):
     FUSE(JSONFS(storage_file_path), mountpoint, nothreads=True, foreground=True)
