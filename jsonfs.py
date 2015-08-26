@@ -10,9 +10,6 @@ import time, datetime
 from fuse import FUSE, FuseOSError, Operations
 
 class JSONFS(Operations):
-    def _get_time():
-        return time.mktime(datetime.datetime.now().timetuple())
-
     def __init__(self, storage_file_path):
         self.storage_file_path = storage_file_path
         if not os.path.exists(self.storage_file_path):
@@ -51,7 +48,7 @@ class JSONFS(Operations):
                 for child in json_obj["children"]:
                     if component == child["name"]:
                         json_obj = child
-            if "name" in json_obj and json_obj["name"] != internal_path[-1]:
+            if ("name" in json_obj and json_obj["name"] != internal_path[-1]) or ("name" not in json_obj and path != "/"):
                 raise FuseOSError(errno.ENOENT)
             return dict((key, json_obj["attrs"][key]) for key in
                     json_obj["attrs"])
@@ -89,6 +86,23 @@ class JSONFS(Operations):
         self.fd += 1
         return self.fd
 
+    def open(self, path, flags):
+        with self.rwlock:
+            storage_file = open(self.storage_file_path)
+            json_obj = json.load(storage_file)
+            full_json_obj = json_obj
+            internal_path = path.split("/")[1:]
+            for component in internal_path:
+                for child in json_obj["children"]:
+                    if component == child["name"]:
+                        json_obj = child
+                    elif component != internal_path[-1]:
+                        raise FuseOSError(errno.ENOENT)
+        print("something")
+        self.fd += 1
+        print(self.fd)
+        return self.fd
+
     def read(self, path, length, offset, fh):
         with self.rwlock:
             storage_file = open(self.storage_file_path)
@@ -98,9 +112,32 @@ class JSONFS(Operations):
                 for child in json_obj["children"]:
                     if component == child["name"]:
                         json_obj = child
-                    elif component != internal_path[-2]:
+                    elif component != internal_path[-1]:
                         raise FuseOSError(errno.ENOENT)
             return bytes(json_obj["contents"][offset:offset + length], 'ascii')
+
+    def write(self, path, data, offset, fh):
+        with self.rwlock:
+            storage_file = open(self.storage_file_path)
+            json_obj = json.load(storage_file)
+            full_json_obj = json_obj
+            internal_path = path.split("/")[1:]
+            for component in internal_path:
+                for child in json_obj["children"]:
+                    if component == child["name"]:
+                        json_obj = child
+                    elif component != internal_path[-2]:
+                        raise FuseOSError(errno.ENOENT)
+            for i in range(len(data)):
+                json_obj["contents"][offset + i] = data[i]
+            storage_file.close()
+            storage_file = open(self.storage_file_path, "w")
+            json.dump(full_json_obj, storage_file)
+            storage_file.close()
+        return len(data)
+
+    def _get_time():
+        return time.mktime(datetime.datetime.now().timetuple())
 
 def main(mountpoint, storage_file_path):
     FUSE(JSONFS(storage_file_path), mountpoint, nothreads=True, foreground=True)
