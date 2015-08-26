@@ -39,7 +39,6 @@ class JSONFS(Operations):
             for i in json_obj["children"]:
                 dir_contents.append(i["name"])
             storage_file.close()
-        print(dir_contents)
         for i in dir_contents:
             yield i
 
@@ -52,12 +51,6 @@ class JSONFS(Operations):
                 for child in json_obj["children"]:
                     if component == child["name"]:
                         json_obj = child["children"]
-            out = dict((key, json_obj["attrs"][key])
-                    for key in json_obj["attrs"])
-            print(out)
-            for key in json_obj["attrs"]:
-                print(key)
-            print(json_obj)
             return dict((key, json_obj["attrs"][key]) for key in
                     json_obj["attrs"])
 
