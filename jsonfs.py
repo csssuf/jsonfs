@@ -88,6 +88,14 @@ class JSONFS(Operations):
             self._write_internal_object(full_json_obj)
         return len(data)
 
+    def truncate(self, path, length):
+        with self.rwlock:
+            full_json_obj, json_obj = self._get_internal_object(path)
+            if length < len(json_obj["contents"]):
+                json_obj["contents"] = json_obj["contents"][:length]
+            json_obj["attrs"]["st_size"] = length
+            self._write_internal_object(full_json_obj)
+
     def _get_time():
         return time.mktime(datetime.datetime.now().timetuple())
 
