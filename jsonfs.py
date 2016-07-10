@@ -26,16 +26,9 @@ class JSONFS(Operations):
     def readdir(self, path, fh):
         dir_contents = [".", ".."]
         with self.rwlock:
-            storage_file = open(self.storage_file_path)
-            json_obj = json.load(storage_file)
-            internal_path = path.split("/")
-            for component in internal_path:
-                for child in json_obj["children"]:
-                    if component == child["name"]:
-                        json_obj = child["children"]
+            _, json_obj = self._get_internal_object(path)
             for i in json_obj["children"]:
                 dir_contents.append(i["name"])
-            storage_file.close()
         for i in dir_contents:
             yield i
 
@@ -54,19 +47,10 @@ class JSONFS(Operations):
                     json_obj["attrs"])
 
     def create(self, path, mode):
-        internal_path = path.split("/")[1:]
-        storage_file = open(self.storage_file_path)
         with self.rwlock: 
-            json_obj = json.load(storage_file)
-            full_json_obj = json_obj
-            for component in internal_path[:-1]:
-                for child in json_obj["children"]:
-                    if component == child["name"]:
-                        json_obj = child["children"]
-                    elif component != internal_path[-2]:
-                        raise FuseOSError(errno.ENOENT)
+            full_json_obj, json_obj = self._get_internal_object(path)
             new_obj = dict()
-            new_obj["name"] = internal_path[-1]
+            new_obj["name"] = path.split("/")[-1]
             new_obj["type"] = "f"
             new_obj["contents"] = ""
             new_obj["attrs"] = {}
@@ -79,65 +63,52 @@ class JSONFS(Operations):
             new_obj["attrs"]["st_ctime"] = JSONFS._get_time() 
             new_obj["attrs"]["st_mtime"] = JSONFS._get_time() 
             json_obj["children"].append(new_obj)
-            storage_file.close()
-            storage_file = open(self.storage_file_path, "w")
-            json.dump(full_json_obj, storage_file)
-            storage_file.close()
+            self._write_internal_object(full_json_obj)
         self.fd += 1
         return self.fd
 
     def open(self, path, flags):
         with self.rwlock:
-            storage_file = open(self.storage_file_path)
-            json_obj = json.load(storage_file)
-            full_json_obj = json_obj
-            internal_path = path.split("/")[1:]
-            for component in internal_path:
-                for child in json_obj["children"]:
-                    if component == child["name"]:
-                        json_obj = child
-                    elif component != internal_path[-1]:
-                        raise FuseOSError(errno.ENOENT)
-        print("something")
+            _, _ = self._get_internal_object(path)
         self.fd += 1
-        print(self.fd)
         return self.fd
 
     def read(self, path, length, offset, fh):
         with self.rwlock:
-            storage_file = open(self.storage_file_path)
-            json_obj = json.load(storage_file)
-            internal_path = path.split("/")[1:]
-            for component in internal_path:
-                for child in json_obj["children"]:
-                    if component == child["name"]:
-                        json_obj = child
-                    elif component != internal_path[-1]:
-                        raise FuseOSError(errno.ENOENT)
-            return bytes(json_obj["contents"][offset:offset + length], 'ascii')
+            _, json_obj = self._get_internal_object(path)
+            return bytes(json_obj["contents"][offset:offset + length], 'utf-8')
 
     def write(self, path, data, offset, fh):
         with self.rwlock:
-            storage_file = open(self.storage_file_path)
-            json_obj = json.load(storage_file)
-            full_json_obj = json_obj
-            internal_path = path.split("/")[1:]
-            for component in internal_path:
-                for child in json_obj["children"]:
-                    if component == child["name"]:
-                        json_obj = child
-                    elif component != internal_path[-2]:
-                        raise FuseOSError(errno.ENOENT)
-            for i in range(len(data)):
-                json_obj["contents"][offset + i] = data[i]
-            storage_file.close()
-            storage_file = open(self.storage_file_path, "w")
-            json.dump(full_json_obj, storage_file)
-            storage_file.close()
+            full_json_obj, json_obj = self._get_internal_object(path)
+            json_obj["contents"] = json_obj["contents"][:offset] + \
+                                   data.decode('utf-8') + \
+                                   json_obj["contents"][offset + len(data) + 1:]
+            json_obj["attrs"]["st_size"] = len(json_obj["contents"])
+            self._write_internal_object(full_json_obj)
         return len(data)
 
     def _get_time():
         return time.mktime(datetime.datetime.now().timetuple())
+
+    def _get_internal_object(self, path):
+        storage_file = open(self.storage_file_path)
+        json_obj = json.load(storage_file)
+        full_json_obj = json_obj
+        internal_path = path.split("/")[1:]
+        for component in internal_path:
+            for child in json_obj["children"]:
+                if component == child["name"]:
+                    json_obj = child
+                elif component != internal_path[-1]:
+                    raise FuseOSError(errno.ENOENT)
+        storage_file.close()
+        return full_json_obj, json_obj
+
+    def _write_internal_object(self, obj):
+        storage_file = open(self.storage_file_path, "w")
+        json.dump(obj, storage_file)
+        storage_file.close()
 
 def main(mountpoint, storage_file_path):
     FUSE(JSONFS(storage_file_path), mountpoint, nothreads=True, foreground=True)
